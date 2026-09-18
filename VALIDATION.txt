@@ -108,3 +108,25 @@ signature verification still passed with the icon sealed in, and the
 48-assertion suite passed.
 The appcast URL still returns 404, confirming v0.2.0 is not yet published, so
 the icon ships in that first release rather than needing a follow-up version.
+
+v1.0.0 notarized release (2026-09-18):
+Both the app archive and the DMG were notarized (Accepted) and stapled, and
+spctl reported "Notarized Developer ID, accepted" for each. The fix that made
+this pass was signing the bundled simslim backend, which the first attempt had
+left out.
+A stale v0.2.0 archive from an earlier local run was removed before generating
+the feed: it was never published, so leaving it would have advertised an update
+pointing at a download that does not exist.
+The release carries the DMG, the Sparkle zip, appcast.xml and SHA256SUMS.txt,
+is marked latest and not a pre-release, and the feed at
+releases/latest/download/appcast.xml now returns 200 advertising 1.0.0, where it
+returned 404 before publishing.
+The v0.1.0 pre-release and its tag were deleted at the maintainer's request. Both
+of its assets had zero downloads, so no existing link was broken.
+Before pushing, the working tree was audited for material that must not be public:
+no key, certificate or environment files, no absolute home paths, and no Apple ID,
+app-specific password or notary profile name. The Sparkle public key in Info.plist
+and the pinned SHA-256 checksums are public by design. Both private keys live in
+the login keychain and were never written into the repository.
+The README now carries two real desktop captures instead of only rendered
+artwork; docs/images/slimbar-preview.png is left generated but unreferenced.
