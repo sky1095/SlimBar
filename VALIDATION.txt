@@ -133,12 +133,17 @@ artwork; docs/images/slimbar-preview.png is left generated but unreferenced.
 
 Branch and tag rulesets (2026-09-18):
 main is protected by an active ruleset: pull request required, force pushes and
-branch deletion blocked, and review threads must be resolved. Required approvals
-are set to 0 on purpose. The repository has a single collaborator and GitHub does
-not allow approving your own pull request, so requiring even one approval would
-have made every merge impossible.
+branch deletion blocked, and review threads must be resolved. One approving review is required and it must
+come from a code owner; .github/CODEOWNERS assigns every path to the repository
+owner, so no change can merge without the owner's review. GitHub does not allow
+approving your own pull request, so the owner's own pull requests are merged
+through the bypass rather than by self-approval.
 Required status checks were left out because the repository has no CI workflow;
 requiring them would have blocked every pull request indefinitely.
 Release tags matching v* are protected against deletion and force-update, so a
 published tag cannot be moved out from under the Sparkle feed.
-The repository owner bypasses both rulesets.
+Both rulesets are bypassed by the Admin repository role, which only the owner
+holds, so direct pushes to main and changes to release tags are possible for the
+owner alone. The bypass is bound to the role rather than to an account, so
+granting admin to anyone else would extend that power to them; repository
+rulesets cannot name an individual user as a bypass actor.
