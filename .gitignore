@@ -4,3 +4,5 @@ build/
 xcuserdata/
 .env
 .env.*
+private_keys/
+*.p8

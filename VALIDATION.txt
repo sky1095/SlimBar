@@ -40,3 +40,71 @@ README relative links and credential-pattern scan passed.
 Documentation images rendered and visually reviewed; they are labeled component
 previews/reference illustrations, not desktop screenshots. Computer-use capture
 continued to time out. No simulator-mutating integration test was rerun.
+
+Show Last Error removal, probe removal, and Sparkle updates (2026-09-18):
+48 regression assertions passed, including the removed error menu item, the
+status row carrying the failure summary and full backend output, and the update
+row staying disabled in a build with no signing key.
+Official Sparkle 2.10.0 archive SHA-256 verified against the GitHub release digest.
+Clean build, plist validation, and strict deep code signature verification passed
+with Sparkle.framework and its nested helpers embedded and signed.
+Both the keyless build and a build carrying a public key launched and ran without
+crashing; the second started the Sparkle updater.
+Release path checked end to end with a throwaway key: generate_appcast produced a
+signed appcast, and that signature verified against the public key embedded in the
+built app. No signing key was created in the maintainer's keychain.
+Documentation previews re-rendered byte-identically after the entry-point refactor.
+No simulator-mutating integration test was rerun, and no real appcast was published.
+
+Notarized DMG release pipeline (2026-09-18):
+build.sh signs with SIGNING_IDENTITY when set and stays ad-hoc otherwise; both
+paths verified. The Developer ID path produced hardened-runtime (0x10000) and
+secure-timestamped signatures on the app and on every nested Sparkle helper,
+under the project's Developer ID team, passing strict deep verification. spctl reported
+"Unnotarized Developer ID", confirming the signature is correct and only the
+notarization step remains.
+generate_appcast was confirmed to reject a zip and a DMG of the same version in
+one directory, so the DMG is built into build/dmg/ outside the feed.
+release.sh was run end to end with the notarytool and stapler steps stubbed: it
+produced a Developer ID signed DMG that mounts with SlimBar.app and an
+/Applications symlink, an appcast whose enclosure points at the zip rather than
+the DMG, and checksums covering both.
+Notarization itself was NOT run: it needs an Apple ID credential profile that
+only the maintainer can create, so no build has been submitted to Apple and no
+release has been published.
+
+Notarization rejection and fix (2026-09-18):
+The first submission came back Invalid. The log named one cause, three
+times over: Contents/Resources/simslim was not Developer ID signed, carried no
+secure timestamp, and had no hardened runtime. Replacing codesign --deep with
+explicit inside-out signing had covered Sparkle's helpers but not the bundled
+backend, which --deep had been signing implicitly.
+build.sh now signs simslim with the same identity and flags as everything else.
+An audit of every Mach-O in the bundle confirms all seven binaries carry the
+project's team identifier, the hardened runtime, and a secure timestamp.
+The signed simslim still runs under the hardened runtime and returned valid JSON
+from "list --json"; the 48-assertion suite passes against it.
+release.sh gained two guards: a preflight that audits every executable before
+submitting, and an explicit status check, because notarytool exits 0 even when
+the result is Invalid, which is why the failed run reached the stapler and
+produced an unreadable "Error 65" instead of stopping at the real error.
+The preflight was tested both ways: it names every offending file on an ad-hoc
+build and passes a Developer ID build.
+Notarization has still NOT succeeded; no release has been published.
+
+App icon (2026-09-18):
+icon/render-icon.swift draws the mark and icon/make-icon.sh packs SlimBar.icns;
+build.sh copies it into Resources before signing, and CFBundleIconFile points at
+it. Four designs were rendered and compared visually before choosing a device
+outline with the green running-dot the menu already uses.
+Small sizes were checked as real rasters magnified with nearest-neighbour, after
+an initial comparison proved invalid: an NSImage draw handler is resolution
+independent and had been re-rendering vectorially at the magnified size instead
+of showing true pixels. The corrected check showed the outline collapsing at
+16pt, so that slot renders a filled silhouette, and the pixel floors were scoped
+so they bind only at 32pt rather than fattening the larger slots.
+NSWorkspace resolved the expected artwork for the built bundle, strict deep
+signature verification still passed with the icon sealed in, and the
+48-assertion suite passed.
+The appcast URL still returns 404, confirming v0.2.0 is not yet published, so
+the icon ships in that first release rather than needing a follow-up version.

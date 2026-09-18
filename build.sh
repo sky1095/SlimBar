@@ -8,7 +8,8 @@ trap 'rm -rf "$STAGING"' EXIT
 APP="$STAGING/SlimBar.app"
 VERSION=0.9.0
 SHA256=186afdeca453d3d1f0fca020b1e3f390338828d87b6b6d3fe338e9286cd2263e
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$PWD/build/module-cache"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks" "$PWD/build/module-cache"
+source ./sparkle.sh
 if [ -n "${SIMSLIM_CLI:-}" ]; then
     CLI="$SIMSLIM_CLI"
     [ -x "$CLI" ] || { echo 'SIMSLIM_CLI must point to an executable' >&2; exit 1; }
@@ -26,11 +27,34 @@ else
     CLI="$CACHE/simslim"
     [ -x "$CLI" ] || { echo 'Downloaded release is missing the simslim executable' >&2; exit 1; }
 fi
-xcrun swiftc -swift-version 5 -O -target arm64-apple-macosx26.0 -module-cache-path "$PWD/build/module-cache" Sources/*.swift -o "$APP/Contents/MacOS/SlimBar" -framework AppKit
+ditto "$SPARKLE_DIR/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+xcrun swiftc -swift-version 5 -O -target arm64-apple-macosx26.0 -module-cache-path "$PWD/build/module-cache" Sources/*.swift -o "$APP/Contents/MacOS/SlimBar" \
+    -framework AppKit -F "$SPARKLE_DIR" -framework Sparkle -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 cp Info.plist "$APP/Contents/Info.plist"
+# The public half of the release signing key is what makes updating possible;
+# without it the app keeps the update menu item disabled.
+if [ -n "${SPARKLE_PUBLIC_KEY:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_PUBLIC_KEY" "$APP/Contents/Info.plist"
+fi
 cp "$CLI" "$APP/Contents/Resources/simslim"
-cp THIRD-PARTY-NOTICES.txt LICENSE "$APP/Contents/Resources/"
-codesign --force --deep --sign - "$APP"
+cp THIRD-PARTY-NOTICES.txt LICENSE icon/SlimBar.icns "$APP/Contents/Resources/"
+# Developer ID signing adds the hardened runtime and secure timestamp that
+# notarization requires. Without an identity the build stays ad-hoc signed and
+# usable locally, but Gatekeeper will reject it if it is redistributed.
+if [ -n "${SIGNING_IDENTITY:-}" ]; then
+    sign() { codesign --force --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$1"; }
+else
+    sign() { codesign --force --sign - "$1"; }
+fi
+FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+# The bundled backend counts as nested code: notarization rejects the whole
+# app if simslim is not signed with the same identity as everything else.
+for NESTED in "$APP/Contents/Resources/simslim" \
+              "$FRAMEWORK/XPCServices/Downloader.xpc" "$FRAMEWORK/XPCServices/Installer.xpc" \
+              "$FRAMEWORK/Updater.app" "$FRAMEWORK/Autoupdate" "$FRAMEWORK"; do
+    sign "$NESTED"
+done
+sign "$APP"
 rm -rf "$FINAL_APP"
 mv "$APP" "$FINAL_APP"
 echo "$FINAL_APP"

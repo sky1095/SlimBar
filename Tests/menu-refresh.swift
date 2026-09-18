@@ -40,4 +40,23 @@ window.contentView!.addSubview(view)
 let inside = window.convertToScreen(view.convert(NSRect(x: 50, y: 10, width: 1, height: 1), to: nil)).origin
 require(delegate.deviceRow(at: inside, in: displayedMenu) === displayedRow, "name click resolves to correct device")
 require(delegate.deviceRow(at: NSPoint(x: inside.x + 500, y: inside.y), in: displayedMenu) == nil, "adjacent submenu clicks do not launch device")
+
+// Show Last Error is gone: a failure has to be readable on the status row itself.
+require(!displayedMenu.items.contains { $0.title.hasPrefix("Show Last Error") }, "no separate error menu item")
+delegate.lastError = "simslim boot exited 1\nsecond line of backend output"
+delegate.message = errorSummary(delegate.lastError!)
+delegate.render()
+let statusRow = displayedMenu.items.first { $0.tag == 101 }!
+require(statusRow.title == "simslim boot exited 1", "status row shows the failure summary")
+require(statusRow.toolTip == delegate.lastError, "full backend output stays readable on the status row")
+require(errorSummary(String(repeating: "x", count: 100)).count == 64, "a long failure is truncated to fit a menu row")
+require(errorSummary(" \n ") == "Action failed", "empty backend output still names the failure")
+delegate.lastError = nil
+
+// Over-the-air updates are offered, but never from a build that cannot verify them.
+let updateRow = displayedMenu.items.first { $0.tag == 107 }!
+require(updateRow.title == "Check for Updates…", "menu offers an update check")
+require(UpdateController.configured() == nil, "updates stay off without a feed URL and public key")
+require(delegate.updates == nil && !updateRow.isEnabled, "an unsigned build cannot check for updates")
+
 if let monitor = delegate.clickMonitor { NSEvent.removeMonitor(monitor) }

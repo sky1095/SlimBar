@@ -16,6 +16,15 @@ func menuBarDeviceImage(running: Bool, busy: Bool) -> NSImage {
     return image
 }
 
+// Backend failures arrive as multi-line command output. The status row shows the
+// first line so a failure is visible at a glance; the row's tooltip keeps the
+// full text for a bug report.
+func errorSummary(_ error: String) -> String {
+    let line = (error.split(separator: "\n").first.map(String.init) ?? "").trimmingCharacters(in: .whitespaces)
+    guard !line.isEmpty else { return "Action failed" }
+    return line.count > 64 ? line.prefix(63) + "…" : line
+}
+
 extension AppDelegate {
     func updateMenuBarStatus() {
         guard let button = item.button else { return }

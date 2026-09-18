@@ -107,6 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var clickMonitor: Any?
     var message = "Loading simulators…"
     var lastError: String?
+    var updates: UpdateController?
     var compatibilityResults: [String: CheckedCompatibility] = [:]
     var lastProfiles: [String: String] = UserDefaults.standard.dictionary(forKey: "lastAppliedProfiles") as? [String: String] ?? [:]
     let queue = DispatchQueue(label: "SlimBar.backend", qos: .userInitiated)
@@ -116,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "iphone", accessibilityDescription: "SlimBar")
         item.button?.toolTip = "SlimBar — iOS simulators via simslim"
+        updates = UpdateController.configured()
         render()
         refresh()
         let timer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in self?.refresh() }
@@ -175,8 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // leaves the old, still-visible menu showing a stale green dot.
     func updateVisibleRows(_ menu: NSMenu) {
         for row in menu.items {
-            if row.tag == 101 { row.title = message }
-            if row.tag == 106 { row.isEnabled = lastError != nil }
+            if row.tag == 101 { row.title = message; row.toolTip = lastError }
             if let choice = row.representedObject as? ProfileChoice {
                 row.isEnabled = !busy && devices.first(where: { $0.udid == choice.udid }).map { choice.profile.supports($0.osVersion) } == true
             }
@@ -209,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             }
             if row.action == #selector(refresh) || row.action == #selector(quit) { row.isEnabled = !busy }
+            if row.tag == 107 { row.isEnabled = updates?.canCheck == true }
             row.view?.needsDisplay = true
             if let submenu = row.submenu { updateVisibleRows(submenu) }
         }
@@ -224,8 +226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.autoenablesItems = false
         menu.delegate = self
         add("SlimBar · iOS Simulators", to: menu)
-        add(message, to: menu).tag = 101
-        add("Show Last Error…", to: menu, action: #selector(showError), enabled: lastError != nil).tag = 106
+        let status = add(message, to: menu)
+        status.tag = 101
+        status.toolTip = lastError
         menu.addItem(.separator())
         let groups = Dictionary(grouping: devices, by: \.osVersion)
         for version in groups.keys.sorted(by: { $0.compare($1, options: .numeric) == .orderedDescending }) {
@@ -267,6 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if devices.isEmpty && !busy { add("No devices found. Add an iOS runtime in Xcode.", to: menu) }
         menu.addItem(.separator())
         add("Refresh", to: menu, action: #selector(refresh), enabled: !busy)
+        let update = add("Check for Updates…", to: menu, action: #selector(checkForUpdates), enabled: updates?.canCheck == true)
+        update.tag = 107
+        update.toolTip = updates == nil ? "This build was made without an update signing key." : nil
         add("Quit SlimBar", to: menu, action: #selector(quit), enabled: !busy)
         item.menu = menu
 
@@ -290,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.busy = false
                 if let found { self.acceptDevices(found) } else { self.statusKnown = false }
                 self.lastError = errorMessage
-                self.message = errorMessage == nil ? "\(self.devices.count) devices · \(self.devices.filter(\.booted).count) running" : "Could not complete action — see error"
+                self.message = errorMessage.map(errorSummary) ?? "\(self.devices.count) devices · \(self.devices.filter(\.booted).count) running"
                 completion?(errorMessage == nil)
                 self.render()
             }
@@ -312,7 +318,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .failure(let error):
                     self.statusKnown = false
                     self.lastError = error.localizedDescription
-                    self.message = "Status refresh failed — see error"
+                    self.message = errorSummary(error.localizedDescription)
                 }
                 self.render()
             }
@@ -400,46 +406,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(device.udid, forType: .string)
     }
-    @objc func showError() {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = "SlimBar could not complete the action"
-        alert.informativeText = lastError ?? "Unknown error"
-        alert.runModal()
-    }
+    @objc func checkForUpdates() { updates?.check() }
     @objc func quit() { NSApp.terminate(nil) }
 }
 
-// A real backend probe, sharing exactly the same code as the menu actions.
-if CommandLine.arguments.contains("--probe") {
-    do {
-        let backend = try IOSBackend()
-        let devices = try backend.devices()
-        print("PASS: decoded \(devices.count) devices from simslim")
-        if CommandLine.arguments.contains("--features") {
-            for device in devices.filter(\.booted) {
-                print("RAM: \(device.name) — \(device.memoryText)")
-                let report = try backend.compatibility(device.udid)
-                print("COMPATIBILITY: \(report.features.map { "\($0.id)=\($0.ok ? "enabled" : "disabled")" }.joined(separator: ", "))")
-            }
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--cycle"), CommandLine.arguments.count > index + 1 {
-            let id = CommandLine.arguments[index + 1]
-            guard let device = devices.first(where: { $0.udid == id }), !device.booted else {
-                throw Failure(message: "Cycle requires a known, initially shutdown device")
-            }
-            defer { _ = try? backend.execute(["shutdown", "--json", id]) }
-            try backend.bootAndOpen(device)
-            guard try backend.devices().contains(where: { $0.udid == id && $0.booted }) else { throw Failure(message: "Boot was not observed") }
-            print("PASS: boot and open \(device.name) iOS \(device.osVersion)")
-            _ = try backend.execute(["shutdown", "--json", id])
-            guard try backend.devices().contains(where: { $0.udid == id && $0.state == "Shutdown" }) else { throw Failure(message: "Shutdown was not observed") }
-            print("PASS: shutdown observed")
-        }
-    } catch { fputs("FAIL: \(error.localizedDescription)\n", stderr); exit(1) }
-} else {
-    let app = NSApplication.shared
-    let delegate = AppDelegate()
-    app.delegate = delegate
-    app.run()
-}
+// Application entry point. The test harnesses compile everything above this line.
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.run()
