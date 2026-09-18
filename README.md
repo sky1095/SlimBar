@@ -130,6 +130,10 @@ This creates an empty simulator, checks Stock → Minimal → Everyday → Stock
 - **An action fails:** open Show Last Error and include the relevant message in your issue report.
 - **An operation stays busy:** this release relies on backend deadlines and has no app-level cancellation/watchdog. If it does not recover, quit through Activity Monitor and reopen SlimBar. Check the device's actual state before retrying a profile change.
 
+## Privacy
+
+SlimBar has no account system or analytics code. It queries local simulator tools through the bundled backend and stores the last-applied profile locally in macOS preferences. Building from source downloads SimSlim from GitHub; opening documentation or support links takes you to GitHub. Review error output before posting it publicly.
+
 ## Current scope
 
 SlimBar is iOS-only. Android, device creation/deletion, runtime installation, search, custom profiles, global shortcuts, launch at login, and automatic updates are not included. Intel builds and older macOS versions are not supported by the default build.

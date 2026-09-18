@@ -29,3 +29,14 @@ CLEANUP: deleted disposable test simulator 08C1B59E-BA60-433A-96AD-4CAD43BB4A9E
 Memory values are immediate snapshots from separate boots, not a controlled savings benchmark.
 
 Auto-open / menu-bar status update: 38 assertions passed. Green pixels rendered from the actual menu-bar image. Spinner visibility/configuration, apply-verify-boot-open order, exact UDID targeting, and failure behavior checked. Build and strict signature verification passed.
+
+Public release preparation (2026-09-18):
+38 regression assertions passed after the documentation-rendering refactor.
+Official SimSlim v0.9.0 arm64 archive SHA-256 verified against release metadata.
+Fresh-bundle build, plist validation, and strict code signature verification passed.
+Bundled backend reported simslim 0.9.0; app read-only probe decoded 11 devices.
+Invalid SIMSLIM_CLI override rejected with an actionable error.
+README relative links and credential-pattern scan passed.
+Documentation images rendered and visually reviewed; they are labeled component
+previews/reference illustrations, not desktop screenshots. Computer-use capture
+continued to time out. No simulator-mutating integration test was rerun.

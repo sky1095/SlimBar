@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")"
-APP="$PWD/build/SlimBar.app"
+FINAL_APP="$PWD/build/SlimBar.app"
+mkdir -p "$PWD/build"
+STAGING="$(mktemp -d "$PWD/build/.SlimBar.XXXXXX")"
+trap 'rm -rf "$STAGING"' EXIT
+APP="$STAGING/SlimBar.app"
 VERSION=0.9.0
 SHA256=186afdeca453d3d1f0fca020b1e3f390338828d87b6b6d3fe338e9286cd2263e
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$PWD/build/module-cache"
@@ -24,8 +28,9 @@ else
 fi
 xcrun swiftc -swift-version 5 -O -target arm64-apple-macosx26.0 -module-cache-path "$PWD/build/module-cache" Sources/*.swift -o "$APP/Contents/MacOS/SlimBar" -framework AppKit
 cp Info.plist "$APP/Contents/Info.plist"
-if [ -f "$APP/Contents/Resources/simslim" ]; then chmod u+w "$APP/Contents/Resources/simslim"; fi
 cp "$CLI" "$APP/Contents/Resources/simslim"
 cp THIRD-PARTY-NOTICES.txt LICENSE "$APP/Contents/Resources/"
 codesign --force --deep --sign - "$APP"
-echo "$APP"
+rm -rf "$FINAL_APP"
+mv "$APP" "$FINAL_APP"
+echo "$FINAL_APP"
