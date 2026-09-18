@@ -1,0 +1,31 @@
+PASS: decoded 20 devices from simslim
+PASS: boot and open iPhone Air iOS 26.5
+PASS: shutdown observed
+
+Status refresh regression: original code failed displayed-menu identity check.
+Fixed code: 6 native AppKit assertions passed, including running-to-stopped dot and retained visible row.
+Rebuild and strict code signature verification passed.
+
+Same-row actions update: 11 native AppKit assertions passed, including row hit testing, submenu attachment, and status-refresh regression. Build/signature passed. Interactive hover/click still requires visual smoke testing.
+
+RAM / profile / compatibility feature update:
+26 native AppKit and feature assertions passed.
+Actual running-device RAM decoded through the app backend.
+Actual doctor reports decoded, including negative reports with exit status 1.
+Build, plist validation, and strict app signature verification passed.
+Computer-use service timed out; interactive visual verification remains outstanding.
+
+Live profile integration test (disposable iOS 26.5 iPhone Air):
+Created disposable device: 08C1B59E-BA60-433A-96AD-4CAD43BB4A9E
+Applying and verifying: Stock
+PASS: Stock, verified profile; 2.45 GB; push=true, storekit=true, universal-links=true
+Applying and verifying: Minimal Testing
+PASS: Minimal Testing, verified profile; 876.7 MB; push=false, storekit=false, universal-links=false
+Applying and verifying: Everyday Development
+PASS: Everyday Development, verified profile; 1.03 GB; push=true, storekit=true, universal-links=true
+Applying and verifying: Stock
+PASS: Stock, verified profile; 2.07 GB; push=true, storekit=true, universal-links=true
+CLEANUP: deleted disposable test simulator 08C1B59E-BA60-433A-96AD-4CAD43BB4A9E
+Memory values are immediate snapshots from separate boots, not a controlled savings benchmark.
+
+Auto-open / menu-bar status update: 38 assertions passed. Green pixels rendered from the actual menu-bar image. Spinner visibility/configuration, apply-verify-boot-open order, exact UDID targeting, and failure behavior checked. Build and strict signature verification passed.
