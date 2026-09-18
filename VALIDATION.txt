@@ -130,3 +130,15 @@ and the pinned SHA-256 checksums are public by design. Both private keys live in
 the login keychain and were never written into the repository.
 The README now carries two real desktop captures instead of only rendered
 artwork; docs/images/slimbar-preview.png is left generated but unreferenced.
+
+Branch and tag rulesets (2026-09-18):
+main is protected by an active ruleset: pull request required, force pushes and
+branch deletion blocked, and review threads must be resolved. Required approvals
+are set to 0 on purpose. The repository has a single collaborator and GitHub does
+not allow approving your own pull request, so requiring even one approval would
+have made every merge impossible.
+Required status checks were left out because the repository has no CI workflow;
+requiring them would have blocked every pull request indefinitely.
+Release tags matching v* are protected against deletion and force-update, so a
+published tag cannot be moved out from under the Sparkle feed.
+The repository owner bypasses both rulesets.
