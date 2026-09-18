@@ -47,4 +47,4 @@ Two things the layout depends on: the DMG is built outside `build/release/` beca
 
 ## Documentation images
 
-Run `docs/render-previews.sh` to regenerate the native-component preview and profile guide. Preview values are illustrative. Keep the README captions clear that these are rendered documentation images, not captured desktop screenshots.
+Run `docs/render-previews.sh` to regenerate the profile guide and the component preview. The two screenshots in the README (`slimbar-menu.png` and `slimbar-desktop.jpg`) are real desktop captures rather than generated artwork, so that script does not touch them; retake them by hand if the menu changes. Preview values are illustrative. Keep the README captions clear that these are rendered documentation images, not captured desktop screenshots.

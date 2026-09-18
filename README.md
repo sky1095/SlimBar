@@ -15,9 +15,9 @@ A native macOS menu bar app to launch simulators, watch their memory usage, and 
 
 </div>
 
-![SlimBar native component preview](docs/images/slimbar-preview.png)
+![SlimBar's menu open, showing simulators grouped by iOS version with live RAM and a device submenu](docs/images/slimbar-menu.png)
 
-*Native component preview rendered from SlimBar's actual AppKit device rows and status icon, using illustrative device data. This is not a captured desktop screenshot or a memory benchmark.*
+*SlimBar with one simulator running. Devices are grouped by runtime, the booted iPhone Air carries a green dot and its live footprint, and its submenu shows state, RAM and per-device actions. The RAM figures are momentary snapshots of simulator-process memory, not a benchmark, and the compatibility rows read "not checked" until you run a check.*
 
 ## Why SlimBar?
 
@@ -58,6 +58,10 @@ Download **SlimBar-v1.0.0-macos-arm64.dmg** from the [v1.0.0 release](https://gi
 The download is Developer ID signed, notarized by Apple, and stapled, so it opens with no Gatekeeper warning and needs no trip to System Settings → Privacy & Security. The `.zip` attached to the same release is what the in-app updater installs; you do not need to download it yourself. Builds you make from source are ad-hoc signed unless you supply your own signing identity.
 
 ## Resource profiles
+
+![The Apply Profile submenu open on a device, listing Stock, Everyday Development and Minimal Testing](docs/images/slimbar-desktop.jpg)
+
+*Choosing a profile from a device's submenu. The menu bar icon is green because a simulator is running, and "Profile: not applied by SlimBar" means SlimBar has not applied one to this device — it does not claim the simulator is untouched.*
 
 ![SlimBar profile guide](docs/images/profiles.png)
 
