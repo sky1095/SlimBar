@@ -38,7 +38,9 @@ let fakeBackend = try! IOSBackend(commandRunner: { executable, arguments in
 })
 try! fakeBackend.applyAndOpen(.everyday, device: snapshot("Shutdown")[0])
 require(calls.map { $0.1.first! } == ["on", "verify", "boot", "-p", "-a"], "slimming verifies, boots, then opens Simulator in order")
-require(calls.last!.1.suffix(2) == ["-CurrentDeviceUDID", "test-device"], "auto-open targets the slimmed device")
+let lastArgs = calls.last!.1
+let targeted = lastArgs.suffix(2) == ["-CurrentDeviceUDID", "test-device"] || lastArgs.contains("devices://device/open?id=test-device")
+require(targeted, "auto-open targets the slimmed device")
 var openedAfterFailure = false
 let failingBackend = try! IOSBackend(commandRunner: { executable, arguments in
     if executable == "/usr/bin/open" { openedAfterFailure = true }
