@@ -147,3 +147,15 @@ holds, so direct pushes to main and changes to release tags are possible for the
 owner alone. The bypass is bound to the role rather than to an account, so
 granting admin to anyone else would extend that power to them; repository
 rulesets cannot name an individual user as a bypass actor.
+
+v1.0.1 notarized release (2026-09-22):
+Resolved simulator window launch failure on Xcode 27: Xcode 27 removed the standalone
+Simulator.app and introduced DeviceHub.app (com.apple.dt.Devices) utilizing the
+devices:// URL scheme. openSimulator now detects DeviceHub and opens simulators via
+devices://device/open?id=<udid> while preserving backwards compatibility with legacy
+Simulator.app for Xcode 16 and older.
+Both the application archive and the DMG were Developer ID signed, notarized by Apple
+(Accepted), and stapled.
+The v1.0.1 release publishes the notarized DMG, full Sparkle update zip, delta patch
+from v1.0.0 (SlimBar4-3.delta), multi-version appcast.xml, and SHA256SUMS.txt.
+
