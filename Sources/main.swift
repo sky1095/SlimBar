@@ -55,7 +55,18 @@ struct IOSBackend {
     func openSimulator(_ device: Device) throws {
         let directory = try commandRunner("/usr/bin/xcode-select", ["-p"])
         let developer = String(decoding: directory, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try commandRunner("/usr/bin/open", ["-a", developer + "/Applications/Simulator.app", "--args", "-CurrentDeviceUDID", device.udid])
+        let legacy = developer + "/Applications/Simulator.app"
+        if FileManager.default.fileExists(atPath: legacy) {
+            _ = try commandRunner("/usr/bin/open", ["-a", legacy, "--args", "-CurrentDeviceUDID", device.udid])
+            return
+        }
+        let url = "devices://device/open?id=\(device.udid)"
+        let deviceHub = URL(fileURLWithPath: developer).deletingLastPathComponent().appendingPathComponent("Applications/DeviceHub.app").path
+        if FileManager.default.fileExists(atPath: deviceHub) {
+            _ = try commandRunner("/usr/bin/open", ["-a", deviceHub, url])
+        } else {
+            _ = try commandRunner("/usr/bin/open", [url])
+        }
     }
 }
 
