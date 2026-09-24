@@ -28,11 +28,11 @@ func errorSummary(_ error: String) -> String {
 extension AppDelegate {
     func updateMenuBarStatus() {
         guard let button = item.button else { return }
-        let running = statusKnown && devices.contains(where: \.booted)
+        let running = (statusKnown || androidAvailable) && (devices.contains(where: \.booted) || androidDevices.contains(where: \.booted))
         item.length = busy ? 54 : 30
         button.title = ""
         button.image = menuBarDeviceImage(running: running, busy: busy)
-        button.toolTip = busy ? message : !statusKnown ? "Simulator status unavailable" : running ? "SlimBar — simulator running" : "SlimBar — no simulators running"
+        button.toolTip = busy ? message : !statusKnown && !androidAvailable ? "Simulator status unavailable" : running ? "SlimBar — running" : "SlimBar — none running"
         if progressIndicator == nil {
             let spinner = NSProgressIndicator()
             spinner.style = .spinning

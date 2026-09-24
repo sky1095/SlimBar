@@ -97,6 +97,10 @@ final class DeviceMenuRowView: NSView {
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = .right
             (device.memoryText as NSString).draw(in: NSRect(x: bounds.width - 142, y: textY, width: 112, height: textHeight), withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+        } else if let android = row.representedObject as? AndroidDevice {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .right
+            (android.memoryText as NSString).draw(in: NSRect(x: bounds.width - 142, y: textY, width: 112, height: textHeight), withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
         }
         ("›" as NSString).draw(in: NSRect(x: bounds.width - 20, y: textY, width: 12, height: textHeight), withAttributes: attributes)
     }
@@ -109,6 +113,10 @@ final class DeviceMenuRowView: NSView {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var item: NSStatusItem!
     var devices: [Device] = []
+    var androidDevices: [AndroidDevice] = []
+    var androidAvailable = false
+    var androidHasSlimmer = false
+    var androidError: String?
     var busy = false
     var statusKnown = true
     var progressIndicator: NSProgressIndicator?
@@ -127,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.setActivationPolicy(.accessory)
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "iphone", accessibilityDescription: "SlimBar")
-        item.button?.toolTip = "SlimBar — iOS simulators via simslim"
+        item.button?.toolTip = "SlimBar — iOS and Android simulators"
         updates = UpdateController.configured()
         render()
         refresh()
@@ -144,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Close tracking before starting the normal boot/open action.
                 root.cancelTracking()
                 self.launchDevice(row)
+                self.launchAndroidDevice(row)
                 return nil
             }
         }
@@ -192,6 +201,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if let choice = row.representedObject as? ProfileChoice {
                 row.isEnabled = !busy && devices.first(where: { $0.udid == choice.udid }).map { choice.profile.supports($0.osVersion) } == true
             }
+            if let choice = row.representedObject as? AndroidLaunchChoice {
+                row.isEnabled = !busy && androidDevices.contains(where: { $0.avdName == choice.avdName && !$0.booted })
+            }
+            if let choice = row.representedObject as? AndroidProfileChoice {
+                row.isEnabled = !busy && androidHasSlimmer && androidDevices.contains(where: { $0.avdName == choice.avdName })
+                if !androidHasSlimmer { row.toolTip = "avdslim is missing. Reinstall SlimBar or set AVDSLIM_CLI." }
+            }
             if let previous = row.representedObject as? Device {
                 guard let current = devices.first(where: { $0.udid == previous.udid }) else {
                     row.isEnabled = false
@@ -220,6 +236,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     row.isEnabled = !busy && current.booted
                 }
             }
+            if let previous = row.representedObject as? AndroidDevice {
+                guard let current = androidDevices.first(where: { $0.avdName == previous.avdName }) else {
+                    row.isEnabled = false
+                    row.image = statusDot(booted: false)
+                    row.toolTip = "Device unavailable"
+                    continue
+                }
+                row.representedObject = current
+                if row.view is DeviceMenuRowView {
+                    row.image = statusDot(booted: current.booted)
+                    row.toolTip = current.state + (current.serial.map { " · \($0)" } ?? "")
+                }
+                if row.tag == 302 {
+                    row.title = current.state + (current.serial.map { " · \($0)" } ?? "") + (current.subtitle.isEmpty ? "" : " · \(current.subtitle)")
+                }
+                if row.tag == 303 { row.title = current.memoryDetail; row.toolTip = current.memoryError }
+                if row.tag == 304 { row.title = lastAndroidProfileText(current.avdName) }
+                if row.action == #selector(launchAndroidDevice(_:)) {
+                    if row.view is DeviceMenuRowView {
+                        row.isEnabled = !busy
+                    } else {
+                        row.title = current.booted ? "Open" : "Boot"
+                        row.isEnabled = !busy
+                    }
+                } else if row.action == #selector(shutdownAndroidDevice(_:)) {
+                    row.isEnabled = !busy && current.booted
+                } else if row.action == #selector(copyAndroidSerial(_:)) {
+                    row.isEnabled = current.serial != nil
+                } else if row.action == #selector(copyAdbCommand(_:)) {
+                    row.isEnabled = current.serial != nil
+                } else if row.action == #selector(screenshotAndroidDevice(_:)) {
+                    row.isEnabled = !busy && current.booted
+                }
+            }
             if row.action == #selector(refresh) || row.action == #selector(quit) { row.isEnabled = !busy }
             if row.tag == 107 { row.isEnabled = updates?.canCheck == true }
             row.view?.needsDisplay = true
@@ -236,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         menu.autoenablesItems = false
         menu.delegate = self
-        add("SlimBar · iOS Simulators", to: menu)
+        add("SlimBar · Simulators", to: menu)
         let status = add(message, to: menu)
         status.tag = 101
         status.toolTip = lastError
@@ -279,6 +329,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         if devices.isEmpty && !busy { add("No devices found. Add an iOS runtime in Xcode.", to: menu) }
+        if androidAvailable || !androidDevices.isEmpty {
+            menu.addItem(.separator())
+            let androidHeader = add("Android", to: menu)
+            androidHeader.toolTip = androidError
+            if let androidError, androidDevices.isEmpty {
+                let failure = add(errorSummary(androidError), to: menu)
+                failure.toolTip = androidError
+            }
+            let androidGroups = Dictionary(grouping: androidDevices, by: { $0.apiLevel.map { "Android API \($0)" } ?? "Android (API unknown)" })
+            for version in androidGroups.keys.sorted(by: { $0.compare($1, options: .numeric) == .orderedDescending }) {
+                add(version, to: menu)
+                for device in androidGroups[version]!.sorted(by: { ($0.booted ? 0 : 1, $0.avdName) < ($1.booted ? 0 : 1, $1.avdName) }) {
+                    // The launch row stays enabled even when booted: AppKit
+                    // disables a submenu whose parent is disabled at attach
+                    // time, which would grey out Shut Down and Copy on a
+                    // running AVD. Clicking a booted row brings its emulator
+                    // window to front; clicking a stopped row boots it.
+                    let launchRow = add(device.avdName, to: menu, action: #selector(launchAndroidDevice(_:)), payload: device, enabled: !busy)
+                    launchRow.image = statusDot(booted: device.booted)
+                    launchRow.toolTip = device.state + (device.serial.map { " · \($0)" } ?? "")
+                    launchRow.view = DeviceMenuRowView()
+                    let submenu = NSMenu()
+                    submenu.autoenablesItems = false
+                    let detail = device.state + (device.serial.map { " · \($0)" } ?? "") + (device.subtitle.isEmpty ? "" : " · \(device.subtitle)")
+                    add(detail, to: submenu, payload: device).tag = 302
+                    add(device.memoryDetail, to: submenu, payload: device).tag = 303
+                    if let error = device.memoryError { add("RAM unavailable: \(error)", to: submenu) }
+                    add(device.booted ? "Open" : "Boot", to: submenu, action: #selector(launchAndroidDevice(_:)), payload: device, enabled: !busy)
+                    add("Shut Down", to: submenu, action: #selector(shutdownAndroidDevice(_:)), payload: device, enabled: !busy && device.booted)
+                    submenu.addItem(.separator())
+                    add(lastAndroidProfileText(device.avdName), to: submenu, payload: device).tag = 304
+                    let androidProfiles = NSMenu()
+                    androidProfiles.autoenablesItems = false
+                    for profile in AndroidProfile.allCases {
+                        let row = add(profile.title + "…", to: androidProfiles, action: #selector(applyAndroidProfile(_:)), payload: AndroidProfileChoice(avdName: device.avdName, profile: profile), enabled: !busy && androidHasSlimmer)
+                        if !androidHasSlimmer { row.toolTip = "avdslim is missing. Reinstall SlimBar or set AVDSLIM_CLI." }
+                    }
+                    let androidProfileRow = NSMenuItem(title: "Apply Profile", action: nil, keyEquivalent: "")
+                    androidProfileRow.submenu = androidProfiles
+                    submenu.addItem(androidProfileRow)
+                    submenu.addItem(.separator())
+                    let launches = NSMenu()
+                    launches.autoenablesItems = false
+                    for mode in AndroidLaunchMode.allCases {
+                        let row = add(mode.title + "…", to: launches, action: #selector(launchAndroidWithMode(_:)), payload: AndroidLaunchChoice(avdName: device.avdName, mode: mode), enabled: !busy && !device.booted)
+                        row.toolTip = mode.detail
+                    }
+                    let launchOptions = NSMenuItem(title: "Boot Options", action: nil, keyEquivalent: "")
+                    launchOptions.submenu = launches
+                    submenu.addItem(launchOptions)
+                    submenu.addItem(.separator())
+                    add("Screenshot", to: submenu, action: #selector(screenshotAndroidDevice(_:)), payload: device, enabled: !busy && device.booted)
+                    submenu.addItem(.separator())
+                    add("Copy AVD Name", to: submenu, action: #selector(copyAVDName(_:)), payload: device)
+                    add("Copy Serial", to: submenu, action: #selector(copyAndroidSerial(_:)), payload: device, enabled: device.serial != nil)
+                    add("Copy ADB Command", to: submenu, action: #selector(copyAdbCommand(_:)), payload: device, enabled: device.serial != nil)
+                    launchRow.submenu = submenu
+                }
+            }
+            if androidDevices.isEmpty && !busy && androidError == nil {
+                add("No Android AVDs. Create one in Android Studio's Device Manager.", to: menu)
+            }
+        }
         menu.addItem(.separator())
         add("Refresh", to: menu, action: #selector(refresh), enabled: !busy)
         let update = add("Check for Updates…", to: menu, action: #selector(checkForUpdates), enabled: updates?.canCheck == true)
@@ -288,6 +401,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
 
     }
+    func statusMessage() -> String {
+        let running = devices.filter(\.booted).count + androidDevices.filter(\.booted).count
+        guard androidAvailable else { return "\(devices.count) devices · \(devices.filter(\.booted).count) running" }
+        return "\(devices.count) iOS · \(androidDevices.count) Android · \(running) running"
+    }
     func perform(_ label: String, completion: ((Bool) -> Void)? = nil, operation: @escaping (IOSBackend) throws -> Void) {
         guard !busy else { return }
         busy = true
@@ -296,6 +414,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         render()
         queue.async {
             var found: [Device]?
+            var androidFound: [AndroidDevice]?
+            var androidSlimmer = false
             var errorMessage: String?
             do {
                 let backend = try IOSBackend()
@@ -303,11 +423,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } catch { errorMessage = error.localizedDescription }
             do { found = try IOSBackend().devices() }
             catch { if errorMessage == nil { errorMessage = error.localizedDescription } }
+            // Opportunistic Android refresh so the section does not go stale
+            // while an iOS operation owns the authoritative snapshot.
+            if let backend = try? AndroidBackend.configured() {
+                androidSlimmer = backend.avdslim != nil
+                androidFound = try? backend.devices()
+            }
             RunLoop.main.perform(inModes: [.common]) {
                 self.busy = false
                 if let found { self.acceptDevices(found) } else { self.statusKnown = false }
+                if let androidFound {
+                    self.androidAvailable = true
+                    self.androidHasSlimmer = androidSlimmer
+                    self.androidError = nil
+                    self.androidDevices = androidFound
+                }
                 self.lastError = errorMessage
-                self.message = errorMessage.map(errorSummary) ?? "\(self.devices.count) devices · \(self.devices.filter(\.booted).count) running"
+                self.message = errorMessage.map(errorSummary) ?? self.statusMessage()
+                completion?(errorMessage == nil)
+                self.render()
+            }
+        }
+    }
+    func performAndroid(_ label: String, avdName: String? = nil, profile: AndroidProfile? = nil, completion: ((Bool) -> Void)? = nil, operation: @escaping (AndroidBackend) throws -> Void) {
+        guard !busy else { return }
+        busy = true
+        message = label
+        lastError = nil
+        render()
+        queue.async {
+            var androidFound: [AndroidDevice]?
+            var errorMessage: String?
+            var androidSlimmer = false
+            do {
+                let backend = try AndroidBackend.configured()
+                androidSlimmer = backend.avdslim != nil
+                try operation(backend)
+                androidFound = try backend.devices()
+            } catch { errorMessage = error.localizedDescription }
+            do {
+                if androidFound == nil {
+                    let backend = try AndroidBackend.configured()
+                    androidSlimmer = backend.avdslim != nil
+                    androidFound = try backend.devices()
+                }
+            } catch {
+                if errorMessage == nil { errorMessage = error.localizedDescription }
+            }
+            RunLoop.main.perform(inModes: [.common]) {
+                self.busy = false
+                self.androidHasSlimmer = androidSlimmer
+                if let androidFound {
+                    self.androidAvailable = true
+                    self.androidError = nil
+                    self.androidDevices = androidFound
+                }
+                self.lastError = errorMessage
+                self.message = errorMessage.map(errorSummary) ?? self.statusMessage()
+                if errorMessage == nil, let avdName, let profile {
+                    self.lastProfiles["android:\(avdName)"] = profile.rawValue
+                    UserDefaults.standard.set(self.lastProfiles, forKey: "lastAppliedProfiles")
+                }
                 completion?(errorMessage == nil)
                 self.render()
             }
@@ -318,6 +494,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshing = true
         queue.async {
             let result = Result { try IOSBackend().devices() }
+            var androidSlimmer = false
+            let androidResult = Result { () -> [AndroidDevice] in
+                let backend = try AndroidBackend.configured()
+                androidSlimmer = backend.avdslim != nil
+                return try backend.devices()
+            }
             RunLoop.main.perform(inModes: [.common]) {
                 self.refreshing = false
                 // A mutation owns the next authoritative snapshot.
@@ -325,11 +507,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 switch result {
                 case .success(let found):
                     self.acceptDevices(found)
-                    self.message = "\(found.count) devices · \(found.filter(\.booted).count) running"
                 case .failure(let error):
                     self.statusKnown = false
                     self.lastError = error.localizedDescription
-                    self.message = errorSummary(error.localizedDescription)
+                }
+                switch androidResult {
+                case .success(let found):
+                    self.androidAvailable = true
+                    self.androidHasSlimmer = androidSlimmer
+                    self.androidError = nil
+                    self.androidDevices = found
+                case .failure(let error as AndroidUnavailable):
+                    // No SDK: hide the section silently instead of failing
+                    // the whole refresh for iOS-only users.
+                    _ = error
+                    self.androidAvailable = false
+                    self.androidHasSlimmer = false
+                    self.androidError = nil
+                    self.androidDevices = []
+                case .failure(let error):
+                    self.androidAvailable = true
+                    self.androidError = error.localizedDescription
+                }
+                switch result {
+                case .success:
+                    self.message = self.statusMessage()
+                case .failure:
+                    self.message = errorSummary(self.lastError ?? "")
+                    if self.androidAvailable {
+                        self.message += " · \(self.androidDevices.count) Android"
+                    }
                 }
                 self.render()
             }
@@ -345,6 +552,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func shutdownDevice(_ sender: NSMenuItem) {
         guard let device = sender.representedObject as? Device else { return }
         perform("Shutting down \(device.name)…") { _ = try $0.execute(["shutdown", "--json", device.udid]) }
+    }
+    func lastAndroidProfileText(_ avdName: String) -> String {
+        guard let raw = lastProfiles["android:\(avdName)"], let profile = AndroidProfile(rawValue: raw) else { return "Profile: not applied by SlimBar" }
+        return "Last applied: " + profile.title
+    }
+    func launchAndroid(avdName: String, mode: AndroidLaunchMode) {
+        performAndroid(mode == .quick ? "Launching \(avdName)…" : "\(mode.title) \(avdName)…") {
+            try $0.launch(avdName: avdName, mode: mode)
+        }
+    }
+    @objc func launchAndroidDevice(_ sender: NSMenuItem) {
+        guard let device = sender.representedObject as? AndroidDevice else { return }
+        if device.booted {
+            activateAndroidEmulator(device.avdName)
+        } else {
+            launchAndroid(avdName: device.avdName, mode: .quick)
+        }
+    }
+    func activateAndroidEmulator(_ avdName: String) {
+        queue.async {
+            guard let psOutput = try? AndroidBackend.hostProcesses() else { return }
+            let entries = AndroidBackend.parsePs(psOutput)
+            let direct = entries.filter { AndroidBackend.isEmulatorProcess($0.command, avdName: avdName) }
+            let all = entries.filter { $0.command.contains("qemu-system-") }
+            guard let process = direct.first ?? (all.count == 1 ? all[0] : nil) else { return }
+            RunLoop.main.perform(inModes: [.common]) {
+                // A windowless emulator is shown in Android Studio's Running
+                // Devices panel, so bring Studio forward instead.
+                if AndroidBackend.isHeadless(process.command) {
+                    let studio = NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier?.hasPrefix("com.google.android.studio") == true }
+                    if let studio {
+                        studio.activate()
+                    } else {
+                        self.message = "\(avdName) runs without a window"
+                        self.render()
+                    }
+                    return
+                }
+                NSRunningApplication(processIdentifier: process.pid)?.activate()
+            }
+        }
+    }
+    @objc func launchAndroidWithMode(_ sender: NSMenuItem) {
+        guard let choice = sender.representedObject as? AndroidLaunchChoice else { return }
+        switch choice.mode {
+        case .quick:
+            break
+        case .cold:
+            guard confirm("Cold-boot \(choice.avdName)?", choice.mode.detail) else { return }
+        case .wipe:
+            guard confirm("Wipe \(choice.avdName) and boot factory-fresh?",
+                          choice.mode.detail + "\n\nThis cannot be undone.") else { return }
+        }
+        launchAndroid(avdName: choice.avdName, mode: choice.mode)
+    }
+    @objc func applyAndroidProfile(_ sender: NSMenuItem) {
+        guard let choice = sender.representedObject as? AndroidProfileChoice,
+              let device = androidDevices.first(where: { $0.avdName == choice.avdName }),
+              confirm("Apply \(choice.profile.title) to \(device.avdName)?", choice.profile.detail + "\n\nThe selected AVD will boot if it is not running. Slimming applies to the running guest; the emulator window stays open. These profiles change guest services, not your app — test your own app's workflows before relying on one.") else { return }
+        let name = choice.avdName
+        let profile = choice.profile
+        performAndroid("Applying \(profile.title)…", avdName: name, profile: profile) {
+            try $0.apply(profile, to: name)
+        }
+    }
+    @objc func shutdownAndroidDevice(_ sender: NSMenuItem) {
+        guard let device = sender.representedObject as? AndroidDevice else { return }
+        let name = device.avdName
+        performAndroid("Shutting down \(name)…") { backend in
+            // Resolve the serial in the backend: the menu's copy can be
+            // stale if the emulator restarted since the last refresh.
+            guard let serial = try backend.serial(forAvd: name) else {
+                throw Failure(message: "\(name) is not running.")
+            }
+            try backend.shutdown(serial: serial)
+        }
     }
     func confirm(_ title: String, _ detail: String) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
@@ -416,6 +699,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let device = sender.representedObject as? Device else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(device.udid, forType: .string)
+    }
+    @objc func copyAVDName(_ sender: NSMenuItem) {
+        guard let device = sender.representedObject as? AndroidDevice else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(device.avdName, forType: .string)
+    }
+    @objc func copyAndroidSerial(_ sender: NSMenuItem) {
+        guard let device = sender.representedObject as? AndroidDevice, let serial = device.serial else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(serial, forType: .string)
+    }
+    @objc func copyAdbCommand(_ sender: NSMenuItem) {
+        guard let device = sender.representedObject as? AndroidDevice, let serial = device.serial else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("adb -s \(serial)", forType: .string)
+    }
+    @objc func screenshotAndroidDevice(_ sender: NSMenuItem) {
+        guard let device = sender.representedObject as? AndroidDevice, device.booted else { return }
+        let name = device.avdName
+        var saved: URL?
+        // Reveal in Finder from the main-thread completion, not the worker.
+        performAndroid("Capturing screenshot…", completion: { ok in
+            if ok, let saved { NSWorkspace.shared.activateFileViewerSelecting([saved]) }
+        }) { backend in
+            guard let serial = try backend.serial(forAvd: name) else {
+                throw Failure(message: "\(name) is not running.")
+            }
+            let data = try backend.commandRunner(backend.adb, ["-s", serial, "exec-out", "screencap", "-p"])
+            let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+            let desktop = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
+            let file = desktop.appendingPathComponent("\(name)-\(timestamp).png")
+            try data.write(to: file)
+            saved = file
+        }
     }
     @objc func checkForUpdates() { updates?.check() }
     @objc func quit() { NSApp.terminate(nil) }
