@@ -8,6 +8,8 @@ trap 'rm -rf "$STAGING"' EXIT
 APP="$STAGING/SlimBar.app"
 VERSION=0.9.0
 SHA256=186afdeca453d3d1f0fca020b1e3f390338828d87b6b6d3fe338e9286cd2263e
+AVDSLIM_VERSION=1.0.15
+AVDSLIM_SHA256=82d80c65216a4f785965ad749cedfef6bf1e05be427274bbe8395849da796fc1
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks" "$PWD/build/module-cache"
 source ./sparkle.sh
 if [ -n "${SIMSLIM_CLI:-}" ]; then
@@ -36,7 +38,34 @@ cp Info.plist "$APP/Contents/Info.plist"
 if [ -n "${SPARKLE_PUBLIC_KEY:-}" ]; then
     /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_PUBLIC_KEY" "$APP/Contents/Info.plist"
 fi
+# The analytics key is supplied at release time and never committed. Builds
+# without it carry no key, so local and contributor builds send nothing.
+if [ -n "${POSTHOG_API_KEY:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :PostHogAPIKey string $POSTHOG_API_KEY" \
+        -c "Add :PostHogHost string ${POSTHOG_HOST:-https://us.i.posthog.com}" "$APP/Contents/Info.plist"
+fi
 cp "$CLI" "$APP/Contents/Resources/simslim"
+# avdslim is the Android counterpart to simslim (service profiles for AVDs).
+# It is optional at runtime: listing and booting use the Android SDK
+# directly, while Apply Profile needs avdslim. Pin it the same way.
+if [ -n "${AVDSLIM_CLI:-}" ]; then
+    AVDSLIM="$AVDSLIM_CLI"
+    [ -x "$AVDSLIM" ] || { echo 'AVDSLIM_CLI must point to an executable' >&2; exit 1; }
+else
+    [ "$(uname -m)" = arm64 ] || { echo 'The bundled Android release supports Apple Silicon only.' >&2; exit 1; }
+    AVDSLIM_CACHE="$PWD/build/vendor/avdslim-$AVDSLIM_VERSION"
+    mkdir -p "$AVDSLIM_CACHE"
+    AVDSLIM_ARCHIVE="$AVDSLIM_CACHE/release.tar.gz"
+    if ! printf '%s  %s\n' "$AVDSLIM_SHA256" "$AVDSLIM_ARCHIVE" | shasum -a 256 -c --status 2>/dev/null; then
+        curl --fail --location --silent --show-error --connect-timeout 20 --max-time 180 --retry 2 \
+            "https://github.com/kdbhalala/avdslim/releases/download/v$AVDSLIM_VERSION/avdslim_v${AVDSLIM_VERSION}_darwin_arm64.tar.gz" -o "$AVDSLIM_ARCHIVE"
+    fi
+    printf '%s  %s\n' "$AVDSLIM_SHA256" "$AVDSLIM_ARCHIVE" | shasum -a 256 -c
+    tar -xzf "$AVDSLIM_ARCHIVE" -C "$AVDSLIM_CACHE"
+    AVDSLIM="$(find "$AVDSLIM_CACHE" -name avdslim -type f -perm +111 | head -1)"
+    [ -n "$AVDSLIM" ] && [ -x "$AVDSLIM" ] || { echo 'Downloaded release is missing the avdslim executable' >&2; exit 1; }
+fi
+cp "$AVDSLIM" "$APP/Contents/Resources/avdslim"
 cp THIRD-PARTY-NOTICES.txt LICENSE icon/SlimBar.icns "$APP/Contents/Resources/"
 # Developer ID signing adds the hardened runtime and secure timestamp that
 # notarization requires. Without an identity the build stays ad-hoc signed and
@@ -49,7 +78,7 @@ fi
 FRAMEWORK="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
 # The bundled backend counts as nested code: notarization rejects the whole
 # app if simslim is not signed with the same identity as everything else.
-for NESTED in "$APP/Contents/Resources/simslim" \
+for NESTED in "$APP/Contents/Resources/simslim" "$APP/Contents/Resources/avdslim" \
               "$FRAMEWORK/XPCServices/Downloader.xpc" "$FRAMEWORK/XPCServices/Installer.xpc" \
               "$FRAMEWORK/Updater.app" "$FRAMEWORK/Autoupdate" "$FRAMEWORK"; do
     sign "$NESTED"

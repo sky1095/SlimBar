@@ -159,3 +159,20 @@ Both the application archive and the DMG were Developer ID signed, notarized by 
 The v1.0.1 release publishes the notarized DMG, full Sparkle update zip, delta patch
 from v1.0.0 (SlimBar4-3.delta), multi-version appcast.xml, and SHA256SUMS.txt.
 
+
+Android emulator support with avdslim profiles (2026-09-24):
+107-assertion suite passes (48 pre-existing iOS plus 59 Android): adb/config/qemu-ps
+parsing never fabricates devices, Booting is never reported as Booted, ambiguous
+host memory stays unavailable, avdslim profile flags are exact, launch/shutdown
+apply flows verified against stubbed emulator/adb, and the Android menu section
+renders, retains, and hides correctly — including the AppKit trap where a
+disabled parent row greys out its whole submenu at attach time.
+avdslim v1.0.15 darwin-arm64 SHA-256 verified against the release checksums.txt,
+bundled into Resources, signed, and reporting its version. Its device addressing
+(index, serial, AVD name) was verified in the published Go source
+(ResolveDevice); the binary's --help output was verified locally.
+No Android SDK exists on this machine, so no emulator was booted, no avdslim
+on/off ran against a real AVD, and no live profile/RAM behavior was measured.
+Live-SDK validation (boot, cold boot, wipe confirm, on/off against a Google
+APIs AVD, RAM attribution to a real qemu process) remains outstanding before
+release.

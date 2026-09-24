@@ -79,7 +79,9 @@ struct CommandResult {
 extension IOSBackend {
     // Separate stderr so diagnostic warnings cannot corrupt machine-readable JSON.
     // A file avoids a second pipe filling up while stdout is drained.
-    static func runResult(_ executable: String, _ arguments: [String]) throws -> CommandResult {
+    // A timeout kills the command: one hung tool must not stall every later
+    // refresh, which waits for the current one to finish.
+    static func runResult(_ executable: String, _ arguments: [String], timeout: TimeInterval? = nil) throws -> CommandResult {
         let errorURL = FileManager.default.temporaryDirectory.appendingPathComponent("slimbar-\(UUID().uuidString).stderr")
         guard FileManager.default.createFile(atPath: errorURL.path, contents: nil, attributes: [.posixPermissions: 0o600]) else {
             throw Failure(message: "Could not create command diagnostics file")
@@ -94,8 +96,16 @@ extension IOSBackend {
         process.standardOutput = output
         process.standardError = errors
         try process.run()
+        if let timeout {
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
+        if timeout != nil, process.terminationReason == .uncaughtSignal, process.terminationStatus == SIGKILL {
+            throw Failure(message: "\(URL(fileURLWithPath: executable).lastPathComponent) \(arguments.joined(separator: " ")) timed out after \(Int(timeout!))s")
+        }
         let errorData = try Data(contentsOf: errorURL)
         return CommandResult(data: data, errorText: String(decoding: errorData, as: UTF8.self), status: process.terminationStatus)
     }
