@@ -176,3 +176,18 @@ on/off ran against a real AVD, and no live profile/RAM behavior was measured.
 Live-SDK validation (boot, cold boot, wipe confirm, on/off against a Google
 APIs AVD, RAM attribution to a real qemu process) remains outstanding before
 release.
+
+v1.1.0 notarized release (2026-09-25):
+Ships Android emulator support (avdslim v1.0.15), backend command timeouts, and
+anonymous install/update/error events sent to PostHog (US cloud). The project token
+is read from a gitignored .env.release and written into Info.plist by build.sh
+before signing; it is not in the repository, and source builds carry no key.
+Error events carry only fixed labels (action, platform, category, tool, exit code);
+145-assertion suite passes, including checks that serials, AVD names, paths, and
+stderr never become labels. No live event was sent before release.
+Both the application archive and the DMG were Developer ID signed, notarized by Apple
+(Accepted), stapled, and accepted by spctl. The appcast carries 1.1.0 (build 5) with
+EdDSA-signed deltas from 1.0.1 (SlimBar5-4.delta) and 1.0.0 (SlimBar5-3.delta), and
+releases/latest/download/appcast.xml was confirmed to serve build 5 after publishing.
+The live-SDK Android validation listed above was still outstanding at release; the
+release notes mark Android support as early and untested against a real SDK.
