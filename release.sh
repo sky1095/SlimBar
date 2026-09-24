@@ -6,6 +6,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 : "${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID Application identity (security find-identity -v -p codesigning)}"
 : "${NOTARY_PROFILE:?Set NOTARY_PROFILE to a profile stored with: xcrun notarytool store-credentials}"
+# Release-only secrets live in .env.release (gitignored), or in the environment.
+if [ -f .env.release ]; then set -a; source ./.env.release; set +a; fi
+: "${POSTHOG_API_KEY:?Set POSTHOG_API_KEY (the PostHog project token, phc_...) in .env.release or the environment}"
+export POSTHOG_API_KEY POSTHOG_HOST
 export SIGNING_IDENTITY
 source ./sparkle.sh
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)"
@@ -20,6 +24,11 @@ if [ -z "$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' build/SlimBar.app/C
     echo 'SUPublicEDKey is empty: set it in Info.plist or export SPARKLE_PUBLIC_KEY.' >&2
     exit 1
 fi
+# A release must ship with analytics wired up, or its data silently goes missing.
+[ "$(/usr/libexec/PlistBuddy -c 'Print :PostHogAPIKey' build/SlimBar.app/Contents/Info.plist 2>/dev/null)" = "$POSTHOG_API_KEY" ] || {
+    echo 'PostHogAPIKey did not reach the built Info.plist.' >&2
+    exit 1
+}
 mkdir -p "$FEED" "$DMG_DIR"
 
 # Apple rejects the whole archive over one badly signed nested binary, and only

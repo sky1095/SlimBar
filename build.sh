@@ -38,6 +38,12 @@ cp Info.plist "$APP/Contents/Info.plist"
 if [ -n "${SPARKLE_PUBLIC_KEY:-}" ]; then
     /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $SPARKLE_PUBLIC_KEY" "$APP/Contents/Info.plist"
 fi
+# The analytics key is supplied at release time and never committed. Builds
+# without it carry no key, so local and contributor builds send nothing.
+if [ -n "${POSTHOG_API_KEY:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :PostHogAPIKey string $POSTHOG_API_KEY" \
+        -c "Add :PostHogHost string ${POSTHOG_HOST:-https://us.i.posthog.com}" "$APP/Contents/Info.plist"
+fi
 cp "$CLI" "$APP/Contents/Resources/simslim"
 # avdslim is the Android counterpart to simslim (service profiles for AVDs).
 # It is optional at runtime: listing and booting use the Android SDK

@@ -127,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var message = "Loading simulators…"
     var lastError: String?
     var updates: UpdateController?
+    var analytics: Analytics?
     var compatibilityResults: [String: CheckedCompatibility] = [:]
     var lastProfiles: [String: String] = UserDefaults.standard.dictionary(forKey: "lastAppliedProfiles") as? [String: String] ?? [:]
     let queue = DispatchQueue(label: "SlimBar.backend", qos: .userInitiated)
@@ -136,6 +137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.image = NSImage(systemSymbolName: "iphone", accessibilityDescription: "SlimBar")
         item.button?.toolTip = "SlimBar — iOS and Android simulators"
+        analytics = Analytics.configured()
+        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+            analytics?.recordLaunch(version: version)
+        }
         updates = UpdateController.configured()
         render()
         refresh()
@@ -397,6 +402,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let update = add("Check for Updates…", to: menu, action: #selector(checkForUpdates), enabled: updates?.canCheck == true)
         update.tag = 107
         update.toolTip = updates == nil ? "This build was made without an update signing key." : nil
+        if let analytics {
+            let share = add("Share Anonymous Usage Stats", to: menu, action: #selector(toggleAnalytics))
+            share.state = analytics.enabled ? .on : .off
+            share.toolTip = "Sends anonymous install, update, and error events: app and macOS version, plus the kind of failure. Never device names, paths, or error text."
+        }
         add("Quit SlimBar", to: menu, action: #selector(quit), enabled: !busy)
         item.menu = menu
 
@@ -406,7 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard androidAvailable else { return "\(devices.count) devices · \(devices.filter(\.booted).count) running" }
         return "\(devices.count) iOS · \(androidDevices.count) Android · \(running) running"
     }
-    func perform(_ label: String, completion: ((Bool) -> Void)? = nil, operation: @escaping (IOSBackend) throws -> Void) {
+    func perform(_ label: String, action: String, completion: ((Bool) -> Void)? = nil, operation: @escaping (IOSBackend) throws -> Void) {
         guard !busy else { return }
         busy = true
         message = label
@@ -440,12 +450,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 self.lastError = errorMessage
                 self.message = errorMessage.map(errorSummary) ?? self.statusMessage()
+                if let errorMessage { self.analytics?.recordError(action: action, platform: "ios", message: errorMessage) }
                 completion?(errorMessage == nil)
                 self.render()
             }
         }
     }
-    func performAndroid(_ label: String, avdName: String? = nil, profile: AndroidProfile? = nil, completion: ((Bool) -> Void)? = nil, operation: @escaping (AndroidBackend) throws -> Void) {
+    func performAndroid(_ label: String, action: String, avdName: String? = nil, profile: AndroidProfile? = nil, completion: ((Bool) -> Void)? = nil, operation: @escaping (AndroidBackend) throws -> Void) {
         guard !busy else { return }
         busy = true
         message = label
@@ -480,6 +491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
                 self.lastError = errorMessage
                 self.message = errorMessage.map(errorSummary) ?? self.statusMessage()
+                if let errorMessage { self.analytics?.recordError(action: action, platform: "android", message: errorMessage) }
                 if errorMessage == nil, let avdName, let profile {
                     self.lastProfiles["android:\(avdName)"] = profile.rawValue
                     UserDefaults.standard.set(self.lastProfiles, forKey: "lastAppliedProfiles")
@@ -510,6 +522,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .failure(let error):
                     self.statusKnown = false
                     self.lastError = error.localizedDescription
+                    self.analytics?.recordError(action: "refresh", platform: "ios", message: error.localizedDescription)
                 }
                 switch androidResult {
                 case .success(let found):
@@ -528,6 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .failure(let error):
                     self.androidAvailable = true
                     self.androidError = error.localizedDescription
+                    self.analytics?.recordError(action: "refresh", platform: "android", message: error.localizedDescription)
                 }
                 switch result {
                 case .success:
@@ -544,21 +558,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     @objc func launchDevice(_ sender: NSMenuItem) {
         guard let device = sender.representedObject as? Device else { return }
-        perform("Opening \(device.name)…") { backend in
+        perform("Opening \(device.name)…", action: "open") { backend in
             // Boot is idempotent; checking current state in the backend avoids a stale-menu race.
             try backend.bootAndOpen(device)
         }
     }
     @objc func shutdownDevice(_ sender: NSMenuItem) {
         guard let device = sender.representedObject as? Device else { return }
-        perform("Shutting down \(device.name)…") { _ = try $0.execute(["shutdown", "--json", device.udid]) }
+        perform("Shutting down \(device.name)…", action: "shutdown") { _ = try $0.execute(["shutdown", "--json", device.udid]) }
     }
     func lastAndroidProfileText(_ avdName: String) -> String {
         guard let raw = lastProfiles["android:\(avdName)"], let profile = AndroidProfile(rawValue: raw) else { return "Profile: not applied by SlimBar" }
         return "Last applied: " + profile.title
     }
     func launchAndroid(avdName: String, mode: AndroidLaunchMode) {
-        performAndroid(mode == .quick ? "Launching \(avdName)…" : "\(mode.title) \(avdName)…") {
+        performAndroid(mode == .quick ? "Launching \(avdName)…" : "\(mode.title) \(avdName)…", action: "boot_\(mode.rawValue)") {
             try $0.launch(avdName: avdName, mode: mode)
         }
     }
@@ -613,14 +627,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               confirm("Apply \(choice.profile.title) to \(device.avdName)?", choice.profile.detail + "\n\nThe selected AVD will boot if it is not running. Slimming applies to the running guest; the emulator window stays open. These profiles change guest services, not your app — test your own app's workflows before relying on one.") else { return }
         let name = choice.avdName
         let profile = choice.profile
-        performAndroid("Applying \(profile.title)…", avdName: name, profile: profile) {
+        performAndroid("Applying \(profile.title)…", action: "apply_profile_\(profile.rawValue)", avdName: name, profile: profile) {
             try $0.apply(profile, to: name)
         }
     }
     @objc func shutdownAndroidDevice(_ sender: NSMenuItem) {
         guard let device = sender.representedObject as? AndroidDevice else { return }
         let name = device.avdName
-        performAndroid("Shutting down \(name)…") { backend in
+        performAndroid("Shutting down \(name)…", action: "shutdown") { backend in
             // Resolve the serial in the backend: the menu's copy can be
             // stale if the emulator restarted since the last refresh.
             guard let serial = try backend.serial(forAvd: name) else {
@@ -669,7 +683,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let device = sender.representedObject as? Device, device.booted else { return }
         compatibilityResults.removeValue(forKey: device.udid)
         var report: CompatibilityReport?
-        perform("Checking \(device.name)…", completion: { _ in
+        perform("Checking \(device.name)…", action: "compatibility_check", completion: { _ in
             if let report, self.devices.contains(where: { $0.udid == device.udid && $0.booted }) {
                 self.compatibilityResults[device.udid] = CheckedCompatibility(report: report, date: Date())
             }
@@ -682,7 +696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         compatibilityResults.removeValue(forKey: device.udid)
         var verified = false
         var report: CompatibilityReport?
-        perform("Applying \(choice.profile.title)…", completion: { _ in
+        perform("Applying \(choice.profile.title)…", action: "apply_profile_\(choice.profile.rawValue)", completion: { _ in
             if verified {
                 self.lastProfiles[device.udid] = choice.profile.rawValue
                 UserDefaults.standard.set(self.lastProfiles, forKey: "lastAppliedProfiles")
@@ -720,7 +734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let name = device.avdName
         var saved: URL?
         // Reveal in Finder from the main-thread completion, not the worker.
-        performAndroid("Capturing screenshot…", completion: { ok in
+        performAndroid("Capturing screenshot…", action: "screenshot", completion: { ok in
             if ok, let saved { NSWorkspace.shared.activateFileViewerSelecting([saved]) }
         }) { backend in
             guard let serial = try backend.serial(forAvd: name) else {
@@ -735,6 +749,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
     @objc func checkForUpdates() { updates?.check() }
+    @objc func toggleAnalytics() {
+        analytics?.enabled.toggle()
+        render()
+    }
     @objc func quit() { NSApp.terminate(nil) }
 }
 

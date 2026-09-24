@@ -30,6 +30,15 @@ xcrun notarytool store-credentials         # stores your Apple ID notarization c
 
 Paste the public key printed by `generate_keys` into `SUPublicEDKey` in `Info.plist` and commit it — that half is public, and builds without it ship with updating disabled. Give the notary profile a name you will reuse.
 
+Put the PostHog project token in a `.env.release` file at the repository root (gitignored; `release.sh` refuses to run without it):
+
+```sh
+POSTHOG_API_KEY=phc_...
+POSTHOG_HOST=https://us.i.posthog.com
+```
+
+`build.sh` writes it into the built app's `Info.plist` before signing, so it never enters the repository. Source builds without it send no analytics.
+
 Then bump `CFBundleShortVersionString` and `CFBundleVersion`, and run:
 
 ```sh

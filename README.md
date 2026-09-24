@@ -11,7 +11,7 @@ A native macOS menu bar app to launch simulators, watch their memory usage, and 
 ![Swift](https://img.shields.io/badge/Swift-AppKit-F05138?logo=swift&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-16a34a)
 
-**[Download](https://github.com/sky1095/SlimBar/releases/tag/v1.0.0) · [Get started](#get-started) · [Features](#features) · [Resource profiles](#resource-profiles) · [Updates](#updates) · [Build](#build-from-source) · [SimSlim](#powered-by-simslim)**
+**[Download](https://github.com/sky1095/SlimBar/releases/tag/v1.1.0) · [Get started](#get-started) · [Features](#features) · [Resource profiles](#resource-profiles) · [Updates](#updates) · [Build](#build-from-source) · [SimSlim](#powered-by-simslim)**
 
 </div>
 
@@ -48,7 +48,7 @@ Simulator management should be a quick action, not a context switch. SlimBar put
 
 **Requirements:** Apple Silicon Mac, macOS 26 or later, full Xcode selected as the active developer directory, and at least one iOS simulator runtime installed through Xcode. For the Android section: the Android SDK with emulator and adb (Android Studio installs both; SlimBar looks in `ANDROID_HOME`/`ANDROID_SDK_ROOT`, `~/Library/Android/sdk`, and `PATH`).
 
-Download **SlimBar-v1.0.0-macos-arm64.dmg** from the [v1.0.0 release](https://github.com/sky1095/SlimBar/releases/tag/v1.0.0), open it, and drag SlimBar to Applications. Alternatively, build from source below. SlimBar lives in the menu bar and does not add a Dock icon or enable launch at login.
+Download **SlimBar-v1.1.0-macos-arm64.dmg** from the [v1.1.0 release](https://github.com/sky1095/SlimBar/releases/tag/v1.1.0), open it, and drag SlimBar to Applications. Alternatively, build from source below. SlimBar lives in the menu bar and does not add a Dock icon or enable launch at login.
 
 1. Click the iPhone icon in the menu bar.
 2. Click a device name to boot and open it.
@@ -140,7 +140,7 @@ Run the native AppKit regression checks after building:
 SIMSLIM_CLI="$PWD/build/SlimBar.app/Contents/Resources/simslim" Tests/run.sh
 ```
 
-The suite currently includes 107 assertions covering retained-menu updates, status colors, busy state, RAM formatting, compatibility validation and expiry, profile availability, exact-device targeting, command order, failure reporting, update-check availability, Android parsing/state/memory attribution, avdslim profile commands, and the Android menu section. Python 3 is used by the test harness to assemble the test executable.
+The suite currently includes 145 assertions covering retained-menu updates, status colors, busy state, RAM formatting, compatibility validation and expiry, profile availability, exact-device targeting, command order, failure reporting, update-check availability, Android parsing/state/memory attribution, avdslim profile commands, the Android menu section, and the anonymous install, update, and error events. Python 3 is used by the test harness to assemble the test executable.
 
 Optional integration test, requiring the iOS 26.5 runtime and iPhone Air device type:
 
@@ -164,7 +164,9 @@ This creates an empty simulator, checks Stock → Minimal → Everyday → Stock
 
 ## Privacy
 
-SlimBar has no account system or analytics code. It queries local simulator tools through the bundled backends (and the Android SDK's emulator/adb when present) and stores the last-applied profile locally in macOS preferences. Update checks fetch the appcast and release archives from GitHub, which sees the request as any download would; Sparkle only checks automatically if you agree to it on first launch. Building from source downloads SimSlim, avdslim, and Sparkle from GitHub; opening documentation or support links takes you to GitHub. Review error output before posting it publicly.
+SlimBar has no account system. It queries local simulator tools through the bundled backends (and the Android SDK's emulator/adb when present) and stores the last-applied profile locally in macOS preferences. Update checks fetch the appcast and release archives from GitHub, which sees the request as any download would; Sparkle only checks automatically if you agree to it on first launch. Building from source downloads SimSlim, avdslim, and Sparkle from GitHub; opening documentation or support links takes you to GitHub. Review error output before posting it publicly.
+
+**Anonymous usage stats.** Official release builds send a few anonymous events to [PostHog](https://posthog.com) (US cloud): `app_installed` the first time SlimBar runs, `app_updated` the first time a new version runs, and `app_error` when an action or refresh fails. Every event carries a random ID generated on your Mac, the SlimBar version (plus the previous one, for updates), and the macOS version. Error events add only fixed labels: the action (for example `apply_profile_minimal` or `refresh`), iOS or Android, a failure category such as `timeout` or `command_failed`, and the tool and exit code when a command failed. The error text itself is never sent, so device and AVD names, UDIDs, serials, file paths, and command output stay on your Mac. Each distinct error is sent at most once per launch. Turn all of it off with **Share Anonymous Usage Stats** in the menu. Builds from source contain no PostHog key and send nothing.
 
 ## Current scope
 
